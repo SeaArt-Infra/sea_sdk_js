@@ -1,5 +1,5 @@
 {
-  "name": "@seaverseai/seaart-sdk-js",
+  "name": "sea_sdk_js",
   "version": "0.1.0",
   "description": "SeaArt AI platform JavaScript SDK for Node.js",
   "type": "module",
