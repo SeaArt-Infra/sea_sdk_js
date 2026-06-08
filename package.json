@@ -1,0 +1,28 @@
+{
+  "name": "@seaverseai/seaart-sdk-js",
+  "version": "0.1.0",
+  "description": "SeaArt AI platform JavaScript SDK for Node.js",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "seaart",
+    "sdk",
+    "llm",
+    "multimodal"
+  ],
+  "license": "UNLICENSED",
+  "private": true
+}

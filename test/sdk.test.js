@@ -1,0 +1,442 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import test from 'node:test';
+
+import {
+  Client,
+  ErrAuth,
+  ErrTaskFailed,
+  FileID,
+  ImageScanRiskTypeErotic,
+  ImageScanRiskTypeViolent,
+  MessagesStreamTextAssembler,
+  ResponsesStreamTextAssembler,
+  SeaArtError,
+  decode,
+  newTask,
+  withHeader,
+  withHeaders,
+  withPollInterval,
+  withPollTimeout,
+} from '../src/index.js';
+
+test('Client derives default and service base URLs', () => {
+  const defaults = new Client({ apiKey: 'test-key' });
+  assert.equal(defaults.baseURL, 'https://gateway.example.com');
+  assert.equal(defaults.modelBaseURL, 'https://gateway.example.com/model');
+  assert.equal(defaults.llmBaseURL, 'https://gateway.example.com/llm');
+  assert.equal(defaults.passthroughBaseURL, 'https://gateway.example.com/model');
+
+  const derived = new Client({ apiKey: 'test-key', baseURL: 'https://gateway.example.com/' });
+  assert.equal(derived.baseURL, 'https://gateway.example.com');
+  assert.equal(derived.modelBaseURL, 'https://gateway.example.com/model');
+  assert.equal(derived.llmBaseURL, 'https://gateway.example.com/llm');
+  assert.equal(derived.passthroughBaseURL, 'https://gateway.example.com/model');
+
+  const overridden = new Client({
+    apiKey: 'test-key',
+    baseURL: 'https://gateway.example.com',
+    modelBaseURL: 'https://model.example.com',
+    llmBaseURL: 'https://llm.example.com',
+    passthroughBaseURL: 'https://passthrough.example.com',
+  });
+  assert.equal(overridden.modelBaseURL, 'https://model.example.com');
+  assert.equal(overridden.llmBaseURL, 'https://llm.example.com');
+  assert.equal(overridden.passthroughBaseURL, 'https://passthrough.example.com');
+});
+
+test('Client rejects invalid base URL', () => {
+  assert.throws(() => new Client({ baseURL: '://bad' }), SeaArtError);
+});
+
+test('Modal create submits raw body and attaches task client', async (t) => {
+  const client = await testClient(t, async (req, res) => {
+    assert.equal(req.method, 'POST');
+    assert.equal(req.url, '/v1/generation');
+    assert.equal(req.headers.authorization, 'Bearer test-key');
+    assert.equal(req.headers['x-trace-id'], 'trace-123');
+
+    const body = await readJSON(req);
+    assert.equal(body.model, 'vidu_q3_reference');
+    assert.equal(body.parameters.duration, 5);
+    writeJSON(res, 200, { id: 'task_create', status: 'in_progress', model: 'vidu_q3_reference' });
+  });
+
+  const task = await client.modal.create({
+    model: 'vidu_q3_reference',
+    input: [{
+      type: 'message',
+      role: 'user',
+      content: [
+        { type: 'text', text: 'cinematic shot' },
+        { type: 'image_url', url: 'https://example.com/ref1.webp' },
+      ],
+    }],
+    parameters: { duration: 5 },
+  }, withHeader('X-Trace-Id', 'trace-123'));
+
+  assert.equal(task.id, 'task_create');
+  assert.equal(task.ID, 'task_create');
+  assert.equal(task.status, 'in_progress');
+  assert.equal(task.model, 'vidu_q3_reference');
+});
+
+test('Modal listModels and getModelSkill use skill endpoints', async (t) => {
+  const client = await testClient(t, async (req, res) => {
+    if (req.url.startsWith('/v1/models/skill/search')) {
+      assert.equal(req.method, 'GET');
+      assert.equal(req.headers.accept, 'application/json');
+      const url = new URL(req.url, 'http://localhost');
+      assert.equal(url.searchParams.get('q'), 'animate');
+      assert.equal(url.searchParams.get('input'), 'image');
+      assert.equal(url.searchParams.get('output'), 'video');
+      assert.equal(url.searchParams.get('type'), 'i2v');
+      assert.equal(url.searchParams.get('provider'), 'alibaba');
+      assert.equal(url.searchParams.get('limit'), '2');
+      writeJSON(res, 200, { hits: [{ name: 'alibaba_animate_anyone_detect' }], query: 'animate', limit: 2, estimatedTotalHits: 1 });
+      return;
+    }
+
+    assert.equal(req.method, 'GET');
+    assert.equal(req.url, '/v1/models/skill/alibaba_animate_anyone_detect');
+    assert.equal(req.headers.accept, 'application/json');
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+    res.end('# alibaba_animate_anyone_detect\n\nparameters');
+  });
+
+  const models = await client.Modal.ListModels({
+    Query: 'animate',
+    Input: 'image',
+    Output: 'video',
+    Type: 'i2v',
+    Provider: 'alibaba',
+    Limit: 2,
+  });
+  assert.equal(models.query, 'animate');
+  assert.equal(models.hits[0].name, 'alibaba_animate_anyone_detect');
+
+  const skill = await client.modal.getModelSkill('alibaba_animate_anyone_detect');
+  assert.equal(skill, '# alibaba_animate_anyone_detect\n\nparameters');
+});
+
+test('Modal scan APIs normalize Go and JS request field names', async (t) => {
+  const seen = [];
+  const client = await testClient(t, async (req, res) => {
+    seen.push(req.url);
+    const body = await readJSON(req);
+
+    if (req.url === '/v1/image/scan') {
+      assert.equal(body.uri, 'https://example.com/image.jpg');
+      assert.deepEqual(body.risk_types, [ImageScanRiskTypeErotic, ImageScanRiskTypeViolent]);
+      assert.equal(body.detected_age, 1);
+      writeJSON(res, 200, { ok: true, nsfw_level: 2, usage: { cost: '0.001' } });
+      return;
+    }
+
+    if (req.url === '/v1/text/scan') {
+      assert.equal(body.text, 'a prompt to check');
+      assert.equal(body.scene, 1);
+      assert.deepEqual(body.area_types, [2]);
+      writeJSON(res, 200, {
+        data: { sensitive_words: [{ word: 'blocked', start_index: 2, end_index: 8, risk_type_code: 'political' }] },
+        status: { code: 10000, msg: 'success', request_id: 'risk-req-1' },
+        usage: { cost: '0.003' },
+      });
+      return;
+    }
+
+    assert.equal(req.url, '/v1/face/scan');
+    assert.equal(body.uri, 'https://example.com/face.jpg');
+    assert.equal(body.is_video, 0);
+    assert.equal(body.scene, 'avatar');
+    writeJSON(res, 200, { ok: true, face_count: 1, usage: { cost: '0.002' } });
+  });
+
+  const image = await client.modal.scanImage({
+    URI: 'https://example.com/image.jpg',
+    RiskTypes: [ImageScanRiskTypeErotic, ImageScanRiskTypeViolent],
+    DetectedAge: 1,
+    IsVideo: 0,
+  });
+  assert.equal(image.ok, true);
+  assert.equal(image.nsfw_level, 2);
+
+  const text = await client.modal.scanText({ Text: 'a prompt to check', Scene: 1, AreaTypes: [2], Way: 0 });
+  assert.equal(text.status.code, 10000);
+  assert.deepEqual(text.extra, {});
+
+  const face = await client.modal.scanFace({ URI: 'https://example.com/face.jpg', IsVideo: 0, Scene: 'avatar' });
+  assert.equal(face.ok, true);
+  assert.equal(face.extra.face_count, 1);
+  assert.deepEqual(seen, ['/v1/image/scan', '/v1/text/scan', '/v1/face/scan']);
+});
+
+test('Modal wait completes and Task.wait uses attached client', async (t) => {
+  let polls = 0;
+  const client = await testClient(t, async (req, res) => {
+    if (req.url === '/v1/generation') {
+      writeJSON(res, 200, { id: 'task_attached', status: 'in_progress', model: 'vidu_q3_reference' });
+      return;
+    }
+
+    assert.equal(req.url, '/v1/generation/task/task_attached');
+    polls += 1;
+    writeJSON(res, 200, {
+      id: 'task_attached',
+      status: polls === 1 ? 'in_progress' : 'completed',
+      progress: polls === 1 ? 0.4 : 1,
+      model: 'vidu_q3_reference',
+    });
+  });
+
+  const created = await client.modal.create({ model: 'vidu_q3_reference' });
+  const task = await created.wait(withPollInterval(10), withPollTimeout(2000));
+  assert.equal(task.status, 'completed');
+  assert.equal(polls, 2);
+});
+
+test('Modal wait returns task_failed errors for failed tasks', async (t) => {
+  const client = await testClient(t, async (_req, res) => {
+    writeJSON(res, 200, { id: 'task_fail', status: 'failed', error: { error_message: 'provider rejected request' } });
+  });
+
+  await assert.rejects(
+    client.modal.wait('task_fail', withPollInterval(10), withPollTimeout(2000)),
+    (error) => error instanceof SeaArtError && error.kind === ErrTaskFailed && error.taskID === 'task_fail',
+  );
+});
+
+test('Task builder builds generic modal request', () => {
+  const body = newTask('vidu_q3_reference')
+    .User(
+      { type: 'text', text: 'cinematic shot' },
+      { type: 'image_url', url: 'https://example.com/ref1.webp' },
+    )
+    .Param('duration', 5)
+    .Metadata('trace_id', 'trace-123')
+    .Build();
+
+  assert.equal(body.model, 'vidu_q3_reference');
+  assert.equal(body.parameters.duration, 5);
+  assert.equal(body.metadata.trace_id, 'trace-123');
+  assert.deepEqual(FileID('file_123'), { type: 'file_id', file_id: 'file_123' });
+});
+
+test('LLM non-streaming APIs post to the expected paths', async (t) => {
+  const paths = [];
+  const client = await testClient(t, async (req, res) => {
+    paths.push(req.url);
+    const body = req.method === 'POST' ? await readJSON(req) : undefined;
+    if (req.url === '/chat/completions') {
+      assert.equal(body.model, 'gpt-4o-mini');
+      writeJSON(res, 200, { id: 'chat_123', choices: [{ message: { role: 'assistant', content: 'hello' } }] });
+    } else if (req.url === '/v1/messages') {
+      assert.equal(body.max_tokens, 32);
+      writeJSON(res, 200, { id: 'msg_123', role: 'assistant', content: [{ type: 'text', text: 'hello from claude' }] });
+    } else if (req.url === '/responses') {
+      assert.equal(body.input, 'hello');
+      writeJSON(res, 200, { id: 'resp_123', status: 'completed', output: [] });
+    } else if (req.url === '/rerank') {
+      assert.equal(body.query, 'mountain lake');
+      writeJSON(res, 200, { id: 'rerank_123', results: [{ index: 1, relevance_score: 0.98 }] });
+    } else if (req.url === '/v1/embeddings') {
+      assert.equal(body.input, 'hello');
+      writeJSON(res, 200, { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }] });
+    } else {
+      assert.equal(req.url, '/v1/models');
+      writeJSON(res, 200, { object: 'list', data: [{ id: 'gpt-4o-mini', object: 'model' }] });
+    }
+  });
+
+  assert.equal(decode(await client.llm.chatCompletions({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }] })).id, 'chat_123');
+  assert.equal(decode(await client.llm.messages({ model: 'claude-3-5-sonnet', messages: [], max_tokens: 32 })).id, 'msg_123');
+  assert.equal(decode(await client.llm.responses({ model: 'gpt-4.1-mini', input: 'hello' })).id, 'resp_123');
+  assert.equal(decode(await client.llm.rerank({ model: 'qwen3-rerank', query: 'mountain lake', documents: [] })).id, 'rerank_123');
+  assert.equal(decode(await client.llm.embeddings({ model: 'text-embedding-3-small', input: 'hello' })).object, 'list');
+  assert.equal(decode(await client.LLM.ListModels()).data[0].id, 'gpt-4o-mini');
+  assert.deepEqual(paths, ['/chat/completions', '/v1/messages', '/responses', '/rerank', '/v1/embeddings', '/v1/models']);
+});
+
+test('LLM request headers and error classification match Go SDK behavior', async (t) => {
+  const client = await testClient(t, async (req, res) => {
+    assert.equal(req.headers['x-trace-id'], 'trace-123');
+    assert.equal(req.headers['x-tenant-id'], 'tenant-a');
+    writeJSON(res, 401, { error: { message: 'invalid api key' } });
+  });
+
+  await assert.rejects(
+    client.llm.chatCompletions(
+      { model: 'gpt-4o-mini', messages: [] },
+      withHeader('X-Trace-Id', 'trace-123'),
+      withHeaders({ 'X-Tenant-Id': 'tenant-a' }),
+    ),
+    (error) => error instanceof SeaArtError && error.kind === ErrAuth && error.message === 'invalid api key',
+  );
+});
+
+test('LLM non-streaming methods reject stream=true payloads', async (t) => {
+  const client = await testClient(t, async () => assert.fail('request should not be sent'));
+
+  await assert.rejects(
+    client.llm.chatCompletions({ model: 'gpt-4o-mini', messages: [], stream: true }),
+    /ChatCompletionsStream/,
+  );
+  await assert.rejects(
+    client.llm.messages({ model: 'claude-3-5-sonnet', messages: [], max_tokens: 32, stream: true }),
+    /MessagesStream/,
+  );
+  await assert.rejects(
+    client.llm.responses({ model: 'gpt-4.1-mini', input: 'hello', stream: true }),
+    /ResponsesStream/,
+  );
+});
+
+test('LLM chat completions stream parses SSE events', async (t) => {
+  const client = await testClient(t, async (req, res) => {
+    assert.equal(req.method, 'POST');
+    assert.equal(req.url, '/chat/completions');
+    const body = await readJSON(req);
+    assert.equal(body.stream, true);
+
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.write('event: message\n');
+    res.write('data: {"id":"chatcmpl_1","choices":[{"delta":{"role":"assistant","content":"hello"}}]}\n\n');
+    res.write('data: [DONE]\n\n');
+    res.end();
+  });
+
+  const events = [];
+  for await (const event of client.llm.chatCompletionsStream({ model: 'gpt-4o-mini', messages: [] })) {
+    events.push(event);
+  }
+
+  assert.equal(events[0].event, 'message');
+  assert.equal(decode(events[0].data).choices[0].delta.content, 'hello');
+  assert.equal(events[1].done, true);
+});
+
+test('LLM messages and responses stream text assemblers work with parsed chunks', async (t) => {
+  const client = await testClient(t, async (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    if (req.url === '/v1/messages') {
+      res.write('data: {"type":"message_start","message":{"id":"msg_1","role":"assistant"}}\n\n');
+      res.write('data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}\n\n');
+      res.write('data: {"type":"message_stop"}\n\n');
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+
+    assert.equal(req.url, '/responses');
+    res.write('data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}\n\n');
+    res.write('data: {"type":"response.output_text.delta","delta":"hello"}\n\n');
+    res.write('data: {"type":"response.output_text.delta","delta":" world"}\n\n');
+    res.write('data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"total_tokens":9}}}\n\n');
+    res.write('data: [DONE]\n\n');
+    res.end();
+  });
+
+  const messageText = new MessagesStreamTextAssembler();
+  for await (const event of client.llm.messagesStream({ model: 'claude-3-5-sonnet', messages: [], max_tokens: 32 })) {
+    if (!event.done) {
+      messageText.add(decode(event.data));
+    }
+  }
+  assert.equal(messageText.text(), 'hello');
+
+  const responseText = new ResponsesStreamTextAssembler();
+  let completed;
+  for await (const event of client.llm.responsesStream({ model: 'gpt-4.1-mini', input: 'hello' })) {
+    if (!event.done) {
+      const chunk = decode(event.data);
+      if (chunk.type === 'response.completed') {
+        completed = chunk;
+      }
+      responseText.add(chunk);
+    }
+  }
+  assert.equal(responseText.text(), 'hello world');
+  assert.equal(completed.response.usage.total_tokens, 9);
+});
+
+test('Passthrough returns raw status, headers, and body for all HTTP statuses', async (t) => {
+  const client = await passthroughClient(t, async (req, res) => {
+    assert.equal(req.method, 'POST');
+    assert.equal(req.url, '/kling/v1/videos/text2video');
+    assert.equal(req.headers.authorization, 'Bearer test-key');
+    assert.equal(req.headers['x-trace-id'], 'trace-123');
+    const body = await readJSON(req);
+    assert.equal(body.model_name, 'kling-v1');
+    res.writeHead(202, { 'Content-Type': 'application/json', 'X-Task-Route': 'passthrough' });
+    res.end(JSON.stringify({ data: { task_id: 'task_123' } }));
+  });
+
+  const response = await client.passthrough.post('/kling/v1/videos/text2video', { model_name: 'kling-v1' }, withHeader('X-Trace-Id', 'trace-123'));
+  assert.equal(response.statusCode, 202);
+  assert.equal(response.headers.get('x-task-route'), 'passthrough');
+  assert.equal(response.json().data.task_id, 'task_123');
+});
+
+test('Passthrough sends raw body as-is and rejects absolute URLs', async (t) => {
+  const rawBody = new TextEncoder().encode('{"contents":[{"parts":[{"text":"paint a cat"}]}]}');
+  const client = await passthroughClient(t, async (req, res) => {
+    assert.equal(req.url, '/google/v1beta/models/gemini-2.5-flash-image:generateContent');
+    const body = await readText(req);
+    assert.equal(body, new TextDecoder().decode(rawBody));
+    writeJSON(res, 400, { error: { message: 'bad request' } });
+  });
+
+  const response = await client.passthrough.requestRaw('POST', 'google/v1beta/models/gemini-2.5-flash-image:generateContent', rawBody);
+  assert.equal(response.statusCode, 400);
+  assert.match(response.text(), /bad request/);
+  await assert.rejects(client.passthrough.get('https://example.com/kling/v1/videos/text2video'), /relative/);
+});
+
+async function testClient(t, handler) {
+  const url = await listen(t, handler);
+  return new Client({
+    apiKey: 'test-key',
+    modelBaseURL: url,
+    llmBaseURL: url,
+    timeout: 5000,
+  });
+}
+
+async function passthroughClient(t, handler) {
+  const url = await listen(t, handler);
+  return new Client({
+    apiKey: 'test-key',
+    passthroughBaseURL: url,
+    timeout: 5000,
+  });
+}
+
+async function listen(t, handler) {
+  const server = createServer((req, res) => {
+    Promise.resolve(handler(req, res)).catch((error) => {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(error.stack);
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const address = server.address();
+  return `http://127.0.0.1:${address.port}`;
+}
+
+function writeJSON(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+async function readJSON(req) {
+  return JSON.parse(await readText(req));
+}
+
+async function readText(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
