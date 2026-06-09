@@ -1,6 +1,6 @@
 # SeaArt JavaScript SDK
 
-SeaArt AI 平台的 Node.js SDK。该版本从 `seaart_sdk_go` 翻译而来，公开三类能力：test
+SeaArt AI 平台的 Node.js SDK。该版本从 `seaart_sdk_go` 翻译而来，公开三类能力：
 
 - `client.modal` / `client.Modal`：多模态任务接口
 - `client.llm` / `client.LLM`：LLM 透传接口
