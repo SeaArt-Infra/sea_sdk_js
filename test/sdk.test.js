@@ -138,7 +138,11 @@ test('Modal scan APIs normalize Go and JS request field names', async (t) => {
       assert.equal(body.scene, 1);
       assert.deepEqual(body.area_types, [2]);
       writeJSON(res, 200, {
-        data: { sensitive_words: [{ word: 'blocked', start_index: 2, end_index: 8, risk_type_code: 'political' }] },
+        data: {
+          sensitive_words: [{ word: 'blocked', start_index: 2, end_index: 8, risk_type_code: 'political' }],
+          combination: null,
+          is_sensitive: false,
+        },
         status: { code: 10000, msg: 'success', request_id: 'risk-req-1' },
         usage: { cost: '0.003' },
       });
@@ -163,6 +167,9 @@ test('Modal scan APIs normalize Go and JS request field names', async (t) => {
 
   const text = await client.modal.scanText({ Text: 'a prompt to check', Scene: 1, AreaTypes: [2], Way: 0 });
   assert.equal(text.status.code, 10000);
+  assert.deepEqual(text.data.sensitive_words, [{ word: 'blocked', start_index: 2, end_index: 8, risk_type_code: 'political' }]);
+  assert.equal(text.data.combination, null);
+  assert.equal(text.data.is_sensitive, false);
   assert.deepEqual(text.extra, {});
 
   const face = await client.modal.scanFace({ URI: 'https://example.com/face.jpg', IsVideo: 0, Scene: 'avatar' });

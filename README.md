@@ -220,6 +220,9 @@ const textScan = await client.modal.scanText({
   area_types: [2],
   way: 0,
 });
+console.log(textScan.data.is_sensitive);
+console.log(textScan.data.sensitive_words);
+console.log(textScan.data.combination);
 
 const faceScan = await client.modal.scanFace({
   uri: 'https://example.com/image.jpg',
@@ -228,7 +231,7 @@ const faceScan = await client.modal.scanFace({
 });
 ```
 
-`scanText` 和 `scanFace` 会把未建模响应字段保留在 `extra`。
+`scanText` 的 `data` 包含 `sensitive_words`、`is_sensitive` 和 `combination`。`scanText` 和 `scanFace` 会把未建模响应字段保留在 `extra`。
 
 ## LLM API
 
