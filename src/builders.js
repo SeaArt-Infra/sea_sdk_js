@@ -2,29 +2,21 @@ export class TaskBuilder {
   constructor(model) {
     this.request = {
       model,
-      input: [],
+      params: {},
       parameters: {},
       metadata: {},
       options: {},
+      extraTopLevel: {},
     };
   }
 
-  input(item) {
-    this.request.input.push(item);
+  params(value) {
+    this.request.params = cloneObject(value);
     return this;
   }
 
-  Input(item) {
-    return this.input(item);
-  }
-
-  user(...parts) {
-    this.request.input.push(user(...parts));
-    return this;
-  }
-
-  User(...parts) {
-    return this.user(...parts);
+  Params(value) {
+    return this.params(value);
   }
 
   param(key, value) {
@@ -54,13 +46,39 @@ export class TaskBuilder {
     return this.option(key, value);
   }
 
+  moderation(value) {
+    this.request.moderation = Boolean(value);
+    return this;
+  }
+
+  Moderation(value) {
+    return this.moderation(value);
+  }
+
+  field(key, value) {
+    this.request.extraTopLevel[key] = value;
+    return this;
+  }
+
+  Field(key, value) {
+    return this.field(key, value);
+  }
+
   build() {
     const body = { model: this.request.model };
-    if (this.request.input.length > 0) {
-      body.input = this.request.input;
+    if (this.request.moderation !== undefined) {
+      body.moderation = this.request.moderation;
     }
+
+    const params = cloneObject(this.request.params);
     if (Object.keys(this.request.parameters).length > 0) {
-      body.parameters = this.request.parameters;
+      params.parameters = {
+        ...(isPlainObject(params.parameters) ? params.parameters : {}),
+        ...this.request.parameters,
+      };
+    }
+    if (Object.keys(params).length > 0) {
+      body.input = [{ params }];
     }
     if (Object.keys(this.request.metadata).length > 0) {
       body.metadata = this.request.metadata;
@@ -68,7 +86,10 @@ export class TaskBuilder {
     if (Object.keys(this.request.options).length > 0) {
       body.options = this.request.options;
     }
-    return body;
+    return {
+      ...body,
+      ...this.request.extraTopLevel,
+    };
   }
 
   Build() {
@@ -82,42 +103,13 @@ export function newTask(model) {
 
 export const NewTask = newTask;
 
-export function user(...parts) {
-  return {
-    type: 'message',
-    role: 'user',
-    content: parts,
-  };
+function cloneObject(value) {
+  if (!isPlainObject(value)) {
+    return {};
+  }
+  return { ...value };
 }
 
-export const User = user;
-
-export function text(textValue) {
-  return { type: 'text', text: textValue };
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-
-export const Text = text;
-
-export function imageURL(url) {
-  return { type: 'image_url', url };
-}
-
-export const ImageURL = imageURL;
-
-export function videoURL(url) {
-  return { type: 'video_url', url };
-}
-
-export const VideoURL = videoURL;
-
-export function audioURL(url) {
-  return { type: 'audio_url', url };
-}
-
-export const AudioURL = audioURL;
-
-export function fileID(id, mime = '') {
-  return mime ? { type: 'file_id', file_id: id, mime } : { type: 'file_id', file_id: id };
-}
-
-export const FileID = fileID;

@@ -2,6 +2,7 @@ import { ErrGeneral, ErrNetwork, ErrTaskFailed, ErrTimeout, SeaArtError, newHTTP
 import { applyPollOptions, buildRequestOptions } from './options.js';
 
 const pathGeneration = '/v1/generation';
+const pathPrecharge = '/v1/generation/precharge';
 const pathTask = '/v1/generation/task/';
 const pathModelSkillSearch = '/v1/models/skill/search';
 const pathModelSkill = '/v1/models/skill/';
@@ -33,6 +34,15 @@ export class ModalService {
       error: data.error,
       client: this.client,
     });
+  }
+
+  async precharge(body, ...options) {
+    const { headers, signal } = splitOptions(options);
+    const response = await this.client.request('POST', pathPrecharge, body, headers, { signal });
+    if (response.status >= 400) {
+      throw modalHTTPError(response.status, response.body);
+    }
+    return decodeJSON(response.body);
   }
 
   async get(taskID, ...options) {

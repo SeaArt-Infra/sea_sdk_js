@@ -48,6 +48,7 @@ export class Client {
 
     this.Modal = goStyleService(this.modal, {
       create: 'Create',
+      precharge: 'Precharge',
       get: 'Get',
       wait: 'Wait',
       listModels: 'ListModels',

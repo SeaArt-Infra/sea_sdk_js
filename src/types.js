@@ -22,6 +22,27 @@
  * @property {typeof fetch} [fetch] Custom fetch implementation.
  */
 
+
+/**
+ * @typedef {Object} PrechargeResponse
+ * @property {PrechargeData} [data]
+ * @property {string} status success or failed.
+ */
+
+/**
+ * @typedef {Object} PrechargeData
+ * @property {string} [billing_model]
+ * @property {string|null} [cost]
+ * @property {string} [currency]
+ * @property {number} [discount]
+ * @property {string} [hash]
+ * @property {string} [model]
+ * @property {string} [original_model]
+ * @property {number} [sample_count]
+ * @property {number} [updated_at]
+ * @property {string} [reason]
+ */
+
 /**
  * @typedef {Object} StreamEvent
  * @property {string} event

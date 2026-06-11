@@ -6,7 +6,6 @@ import {
   Client,
   ErrAuth,
   ErrTaskFailed,
-  FileID,
   ImageScanRiskTypeErotic,
   ImageScanRiskTypeViolent,
   MessagesStreamTextAssembler,
@@ -49,7 +48,7 @@ test('Client rejects invalid base URL', () => {
   assert.throws(() => new Client({ baseURL: '://bad' }), SeaArtError);
 });
 
-test('Modal create submits raw body and attaches task client', async (t) => {
+test('Modal create submits params body and attaches task client', async (t) => {
   const client = await testClient(t, async (req, res) => {
     assert.equal(req.method, 'POST');
     assert.equal(req.url, '/v1/generation');
@@ -57,28 +56,103 @@ test('Modal create submits raw body and attaches task client', async (t) => {
     assert.equal(req.headers['x-trace-id'], 'trace-123');
 
     const body = await readJSON(req);
-    assert.equal(body.model, 'vidu_q3_reference');
-    assert.equal(body.parameters.duration, 5);
-    writeJSON(res, 200, { id: 'task_create', status: 'in_progress', model: 'vidu_q3_reference' });
+    assert.equal(body.model, 'alibaba_wanx26_i2v_flash');
+    assert.equal(body.moderation, true);
+    assert.equal(body.input[0].params.input.prompt, '小狗和女孩在秋天的公园里快乐地玩耍');
+    assert.equal(body.input[0].params.parameters.duration, 5);
+    writeJSON(res, 200, { id: 'task_create', status: 'in_progress', model: 'alibaba_wanx26_i2v_flash' });
   });
 
   const task = await client.modal.create({
-    model: 'vidu_q3_reference',
+    moderation: true,
+    model: 'alibaba_wanx26_i2v_flash',
     input: [{
-      type: 'message',
-      role: 'user',
-      content: [
-        { type: 'text', text: 'cinematic shot' },
-        { type: 'image_url', url: 'https://example.com/ref1.webp' },
-      ],
+      params: {
+        input: {
+          img_url: 'https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg',
+          prompt: '小狗和女孩在秋天的公园里快乐地玩耍',
+        },
+        parameters: {
+          resolution: '720P',
+          duration: 5,
+          prompt_extend: true,
+          watermark: false,
+        },
+      },
     }],
-    parameters: { duration: 5 },
   }, withHeader('X-Trace-Id', 'trace-123'));
 
   assert.equal(task.id, 'task_create');
   assert.equal(task.ID, 'task_create');
   assert.equal(task.status, 'in_progress');
-  assert.equal(task.model, 'vidu_q3_reference');
+  assert.equal(task.model, 'alibaba_wanx26_i2v_flash');
+});
+
+
+test('Modal precharge returns billing preview', async (t) => {
+  const client = await testClient(t, async (req, res) => {
+    assert.equal(req.method, 'POST');
+    assert.equal(req.url, '/v1/generation/precharge');
+    const body = await readJSON(req);
+    assert.equal(body.id, 'd88pmute87128c73e9r0d0');
+    assert.equal(body.model, 'volces_seedream_4_5');
+    assert.equal(body.input[0].params.prompt, 'A dog');
+    assert.equal(body.moderation, false);
+    writeJSON(res, 200, {
+      data: {
+        billing_model: 'volces_seedream_4_5',
+        cost: '0.035714285714',
+        currency: 'USD',
+        discount: 0.7,
+        hash: 'v1:18a733f04d227d572950ed8f1f98a9ba4cd37c168c5c98c05a5e574984f58eaf',
+        model: 'volces_seedream_4_5',
+        original_model: 'volces_seedream_4_5',
+        sample_count: 4,
+        updated_at: 1780633394064,
+      },
+      status: 'success',
+    });
+  });
+
+  const resp = await client.modal.precharge({
+    id: 'd88pmute87128c73e9r0d0',
+    model: 'volces_seedream_4_5',
+    input: [{ params: { prompt: 'A dog' } }],
+    moderation: false,
+  });
+
+  assert.equal(resp.status, 'success');
+  assert.equal(resp.data.billing_model, 'volces_seedream_4_5');
+  assert.equal(resp.data.cost, '0.035714285714');
+  assert.equal(resp.data.sample_count, 4);
+});
+
+test('Modal precharge supports cache miss response', async (t) => {
+  const client = await testClient(t, async (req, res) => {
+    assert.equal(req.method, 'POST');
+    assert.equal(req.url, '/v1/generation/precharge');
+    writeJSON(res, 200, {
+      data: {
+        cost: null,
+        hash: 'v1:02833b68895eeb61bf214d35fd669502ef788e4c8d58505893414ae9632ca8ab',
+        model: 'volces_seedream_4_5',
+        original_model: 'volces_seedream_4_5',
+        reason: 'COST_CACHE_MISS',
+      },
+      status: 'failed',
+    });
+  });
+
+  const body = newTask('volces_seedream_4_5')
+    .Field('id', 'd88pmute87128c73e9r0d0')
+    .Moderation(false)
+    .Params({ prompt: 'A dog' })
+    .Build();
+  const resp = await client.Modal.Precharge(body);
+
+  assert.equal(resp.status, 'failed');
+  assert.equal(resp.data.cost, null);
+  assert.equal(resp.data.reason, 'COST_CACHE_MISS');
 });
 
 test('Modal listModels and getModelSkill use skill endpoints', async (t) => {
@@ -213,20 +287,50 @@ test('Modal wait returns task_failed errors for failed tasks', async (t) => {
   );
 });
 
-test('Task builder builds generic modal request', () => {
-  const body = newTask('vidu_q3_reference')
-    .User(
-      { type: 'text', text: 'cinematic shot' },
-      { type: 'image_url', url: 'https://example.com/ref1.webp' },
-    )
+test('Task builder builds nested params modal request', () => {
+  const body = newTask('alibaba_wanx26_i2v_flash')
+    .Moderation(true)
+    .Params({
+      input: {
+        img_url: 'https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg',
+        prompt: '小狗和女孩在秋天的公园里快乐地玩耍',
+      },
+      parameters: {
+        resolution: '720P',
+        prompt_extend: true,
+        watermark: false,
+      },
+    })
     .Param('duration', 5)
     .Metadata('trace_id', 'trace-123')
     .Build();
 
-  assert.equal(body.model, 'vidu_q3_reference');
-  assert.equal(body.parameters.duration, 5);
+  assert.equal(body.model, 'alibaba_wanx26_i2v_flash');
+  assert.equal(body.moderation, true);
+  assert.equal(body.input[0].params.input.prompt, '小狗和女孩在秋天的公园里快乐地玩耍');
+  assert.equal(body.input[0].params.parameters.resolution, '720P');
+  assert.equal(body.input[0].params.parameters.duration, 5);
   assert.equal(body.metadata.trace_id, 'trace-123');
-  assert.deepEqual(FileID('file_123'), { type: 'file_id', file_id: 'file_123' });
+});
+
+test('Task builder builds flat params with top-level fields', () => {
+  const body = newTask('grok_imagine_image')
+    .Field('dash_scope', true)
+    .Moderation(true)
+    .Params({
+      aspect_ratio: '1:2',
+      prompt: 'Lego art version of Superman and Batman，Night scene',
+      n: 1,
+      resolution: '1k',
+    })
+    .Build();
+
+  assert.equal(body.dash_scope, true);
+  assert.equal(body.moderation, true);
+  assert.equal(body.input[0].params.aspect_ratio, '1:2');
+  assert.equal(body.input[0].params.prompt, 'Lego art version of Superman and Batman，Night scene');
+  assert.equal(body.input[0].params.n, 1);
+  assert.equal(body.input[0].params.resolution, '1k');
 });
 
 test('LLM non-streaming APIs post to the expected paths', async (t) => {
