@@ -6,11 +6,14 @@ import {
   Client,
   ErrAuth,
   ErrTaskFailed,
+  FileID,
+  ImageURL,
   ImageScanRiskTypeErotic,
   ImageScanRiskTypeViolent,
   MessagesStreamTextAssembler,
   ResponsesStreamTextAssembler,
   SeaArtError,
+  Text,
   decode,
   newTask,
   withHeader,
@@ -311,6 +314,24 @@ test('Task builder builds nested params modal request', () => {
   assert.equal(body.input[0].params.parameters.resolution, '720P');
   assert.equal(body.input[0].params.parameters.duration, 5);
   assert.equal(body.metadata.trace_id, 'trace-123');
+});
+
+
+test('Task builder keeps legacy user helpers import-compatible', () => {
+  const body = newTask('vidu_q3_reference')
+    .User(
+      Text('cinematic shot'),
+      ImageURL('https://example.com/ref1.webp'),
+    )
+    .Param('duration', 5)
+    .Build();
+
+  assert.equal(body.model, 'vidu_q3_reference');
+  assert.equal(body.input[0].params.input[0].type, 'message');
+  assert.equal(body.input[0].params.input[0].role, 'user');
+  assert.deepEqual(body.input[0].params.input[0].content[0], { type: 'text', text: 'cinematic shot' });
+  assert.equal(body.input[0].params.parameters.duration, 5);
+  assert.deepEqual(FileID('file_123'), { type: 'file_id', file_id: 'file_123' });
 });
 
 test('Task builder builds flat params with top-level fields', () => {

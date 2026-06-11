@@ -214,6 +214,8 @@ const task = await client.Modal.Create(body);
 const preview = await client.Modal.Precharge(body);
 ```
 
+兼容说明：历史版本导出的 `user`、`text`、`imageURL`、`videoURL`、`audioURL`、`fileID` 以及 builder 上的 `user()` / `input()` 方法仍保留，避免已有调用方升级后导入失败；但多模态网关不再推荐 message/content 结构，新接入请统一使用 `params()`。
+
 ### 等待任务完成
 
 ```js

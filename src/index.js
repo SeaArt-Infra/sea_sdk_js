@@ -40,6 +40,18 @@ export {
   newTask,
   NewTask,
   TaskBuilder,
+  user,
+  User,
+  text,
+  Text,
+  imageURL,
+  ImageURL,
+  videoURL,
+  VideoURL,
+  audioURL,
+  AudioURL,
+  fileID,
+  FileID,
 } from './builders.js';
 export {
   decode,

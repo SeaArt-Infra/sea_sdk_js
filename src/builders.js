@@ -4,6 +4,7 @@ export class TaskBuilder {
       model,
       params: {},
       parameters: {},
+      legacyInput: [],
       metadata: {},
       options: {},
       extraTopLevel: {},
@@ -17,6 +18,24 @@ export class TaskBuilder {
 
   Params(value) {
     return this.params(value);
+  }
+
+  input(item) {
+    this.request.legacyInput.push(item);
+    return this;
+  }
+
+  Input(item) {
+    return this.input(item);
+  }
+
+  user(...parts) {
+    this.request.legacyInput.push(user(...parts));
+    return this;
+  }
+
+  User(...parts) {
+    return this.user(...parts);
   }
 
   param(key, value) {
@@ -71,6 +90,9 @@ export class TaskBuilder {
     }
 
     const params = cloneObject(this.request.params);
+    if (this.request.legacyInput.length > 0 && params.input === undefined) {
+      params.input = this.request.legacyInput;
+    }
     if (Object.keys(this.request.parameters).length > 0) {
       params.parameters = {
         ...(isPlainObject(params.parameters) ? params.parameters : {}),
@@ -113,3 +135,44 @@ function cloneObject(value) {
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+
+export function user(...parts) {
+  return {
+    type: 'message',
+    role: 'user',
+    content: parts,
+  };
+}
+
+export const User = user;
+
+export function text(textValue) {
+  return { type: 'text', text: textValue };
+}
+
+export const Text = text;
+
+export function imageURL(url) {
+  return { type: 'image_url', url };
+}
+
+export const ImageURL = imageURL;
+
+export function videoURL(url) {
+  return { type: 'video_url', url };
+}
+
+export const VideoURL = videoURL;
+
+export function audioURL(url) {
+  return { type: 'audio_url', url };
+}
+
+export const AudioURL = audioURL;
+
+export function fileID(id, mime = '') {
+  return mime ? { type: 'file_id', file_id: id, mime } : { type: 'file_id', file_id: id };
+}
+
+export const FileID = fileID;
