@@ -38,34 +38,18 @@ const client = new Client({
 });
 ```
 
-默认网关配置：
-
-- `baseURL`：`https://gateway.example.com`
-- `modelBaseURL`：`https://gateway.example.com/model`
-- `llmBaseURL`：`https://gateway.example.com/llm`
-- `passthroughBaseURL`：`https://gateway.example.com/model`
-
-如果显式传入 `baseURL`，SDK 会默认派生：
-
-- `modelBaseURL = baseURL + "/model"`
-- `llmBaseURL = baseURL + "/llm"`
-- `passthroughBaseURL = modelBaseURL`
-
-也可以分别覆盖：
+默认网关地址为 `https://gateway.example.com`。如果你的环境使用自定义网关，通常只需要覆盖 `baseURL`，SDK 会基于同一个网关地址调用不同功能。
 
 ```js
 const client = new Client({
   apiKey: 'sa-your-api-key',
   baseURL: 'https://gateway.example.com',
-  modelBaseURL: 'https://mm-gateway.example.com',
-  llmBaseURL: 'https://llm-gateway.example.com',
-  passthroughBaseURL: 'https://mm-gateway.example.com',
   timeout: 60_000,
   project: 'my-project',
 });
 ```
 
-请求会自动带上：
+**请求会自动带上**
 
 - `Authorization: Bearer {apiKey}`
 - `User-Agent: seaart-sdk-js/{version}`
@@ -84,13 +68,13 @@ await client.llm.chatCompletions(
 );
 ```
 
-## 多模态任务 API
+## 多模态 API
 
 多模态任务请求统一使用 `input[0].params` 承载模型字段。不同模型的 `params` 结构可能不同：有些模型需要 `input` / `parameters` 两层，有些模型直接把模型字段平铺在 `params` 下。
 
 `moderation` 为可选布尔字段：`true` 表示开白，`false` 表示非开白。
 
-### 创建任务
+**创建任务**
 
 ```js
 const task = await client.modal.create({
@@ -133,7 +117,7 @@ console.log(resp.status);
 console.log(resp.data.billing_model, resp.data.cost, resp.data.currency);
 ```
 
-成功响应示例：
+**成功响应示例**
 
 ```json
 {
@@ -152,7 +136,7 @@ console.log(resp.data.billing_model, resp.data.cost, resp.data.currency);
 }
 ```
 
-未匹配上预扣费数据时，可能返回：
+**未匹配上预扣费数据时，可能返回**
 
 ```json
 {
@@ -192,7 +176,7 @@ const body = newTask('alibaba_wanx26_i2v_flash')
 const task = await client.modal.create(body);
 ```
 
-模型字段平铺在 `params` 下的示例：
+**模型字段平铺在 `params` 下的示例**
 
 ```js
 const body = newTask('grok_imagine_image')
@@ -207,7 +191,7 @@ const body = newTask('grok_imagine_image')
   .build();
 ```
 
-Go 风格别名也可用：
+**Go 风格别名也可用**
 
 ```js
 const task = await client.Modal.Create(body);
@@ -237,7 +221,7 @@ const done = await client.modal.wait(
 console.log(done.output);
 ```
 
-创建后的 `task` 也可以直接等待：
+**创建后的 `task` 也可以直接等待**
 
 ```js
 const done = await task.wait(withPollInterval(3000));
@@ -258,7 +242,38 @@ const models = await client.modal.listModels({
 const skillMarkdown = await client.modal.getModelSkill('alibaba_animate_anyone_detect');
 ```
 
-### 图片/视频鉴黄
+### Passthrough API（厂商透传）
+
+Passthrough 会原样返回 HTTP 状态码、响应头和 body。即使上游返回 4xx/5xx，也不会转成 SDK 错误。
+
+```js
+const resp = await client.passthrough.post(
+  '/kling/v1/videos/text2video',
+  {
+    model_name: 'kling-v1',
+    prompt: 'cinematic shot',
+  },
+  withHeader('X-Trace-Id', 'trace-123'),
+);
+
+console.log(resp.statusCode);
+console.log(resp.headers.get('x-task-route'));
+console.log(resp.json());
+```
+
+**原始 body**
+
+```js
+const body = new TextEncoder().encode('{"contents":[{"parts":[{"text":"paint a cat"}]}]}');
+
+const resp = await client.passthrough.requestRaw(
+  'POST',
+  'google/v1beta/models/gemini-2.5-flash-image:generateContent',
+  body,
+);
+```
+
+## 图片/视频鉴黄
 
 ```js
 import {
@@ -283,7 +298,7 @@ const resp = await client.modal.scanImage({
 console.log(resp.ok, resp.nsfw_level, resp.risk_types);
 ```
 
-Go SDK 的字段风格也会被归一化：
+**Go SDK 的字段风格也会被归一化**
 
 ```js
 await client.modal.scanImage({
@@ -294,7 +309,7 @@ await client.modal.scanImage({
 });
 ```
 
-### 敏感词和人脸检测
+## 敏感词检测
 
 ```js
 const textScan = await client.modal.scanText({
@@ -306,13 +321,21 @@ const textScan = await client.modal.scanText({
 console.log(textScan.data.is_sensitive);
 console.log(textScan.data.sensitive_words);
 console.log(textScan.data.combination);
+```
 
+## 人脸检测
+
+```js
 const faceScan = await client.modal.scanFace({
   uri: 'https://example.com/image.jpg',
   is_video: 0,
   scene: 'avatar',
 });
+```
 
+## 音频检测
+
+```js
 const audioScan = await client.modal.scanAudio({
   uri: 'https://example.com/audio/test.mp3',
   rec_type: 'AUDIOPOLITICAL_MOAN_ANTHEN',
@@ -325,7 +348,7 @@ console.log(audioScan.riskLevel, audioScan.riskDescription);
 
 ## 大语言模型 API
 
-非流式方法返回原始 JSON 字符串，使用 `decode()` 解析：
+**非流式方法返回原始 JSON 字符串，使用 `decode()` 解析**
 
 ```js
 import { decode } from 'sea_sdk_js';
@@ -340,7 +363,7 @@ const resp = decode(raw);
 console.log(resp.choices[0].message.content);
 ```
 
-已支持的 LLM 方法：
+**已支持的 LLM 方法**
 
 - `client.llm.chatCompletions(payload)`
 - `client.llm.chatCompletionsStream(payload)`
@@ -356,7 +379,7 @@ console.log(resp.choices[0].message.content);
 
 ### 流式 SSE
 
-流式方法返回 async iterable：
+**流式方法返回 async iterable**
 
 ```js
 for await (const event of client.llm.chatCompletionsStream({
@@ -372,7 +395,7 @@ for await (const event of client.llm.chatCompletionsStream({
 }
 ```
 
-文本拼接 helper：
+**文本拼接 helper**
 
 ```js
 import { ResponsesStreamTextAssembler } from 'sea_sdk_js';
@@ -391,40 +414,9 @@ for await (const event of client.llm.responsesStream({
 console.log(text.text());
 ```
 
-## 厂商透传 API
-
-Passthrough 会原样返回 HTTP 状态码、响应头和 body。即使上游返回 4xx/5xx，也不会转成 SDK 错误。
-
-```js
-const resp = await client.passthrough.post(
-  '/kling/v1/videos/text2video',
-  {
-    model_name: 'kling-v1',
-    prompt: 'cinematic shot',
-  },
-  withHeader('X-Trace-Id', 'trace-123'),
-);
-
-console.log(resp.statusCode);
-console.log(resp.headers.get('x-task-route'));
-console.log(resp.json());
-```
-
-原始 body：
-
-```js
-const body = new TextEncoder().encode('{"contents":[{"parts":[{"text":"paint a cat"}]}]}');
-
-const resp = await client.passthrough.requestRaw(
-  'POST',
-  'google/v1beta/models/gemini-2.5-flash-image:generateContent',
-  body,
-);
-```
-
 ## 错误
 
-SDK 错误统一为 `SeaArtError`：
+**SDK 错误统一为 `SeaArtError`**
 
 ```js
 import { ErrAuth, SeaArtError } from 'sea_sdk_js';
@@ -438,7 +430,7 @@ try {
 }
 ```
 
-错误分类：
+**错误分类**
 
 - `auth`
 - `quota`
