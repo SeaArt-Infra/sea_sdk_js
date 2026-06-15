@@ -1,206 +1,143 @@
 # SeaArt JavaScript SDK
 
-SeaArt AI 平台的 Node.js SDK。该版本从 `seaart_sdk_go` 翻译而来，公开三类能力：
+> Beta: SDK API 和 SeaArt gateway 行为仍可能随网关版本调整。
 
-- `client.modal` / `client.Modal`：多模态任务接口
-- `client.llm` / `client.LLM`：大语言模型透传接口
-- `client.passthrough` / `client.Passthrough`：厂商原始 API 透传接口
+Node.js SDK for SeaArt AI gateway APIs. It wraps multimodal generation tasks, model metadata, content safety scans, LLM passthrough APIs, SSE streaming, and provider passthrough requests.
 
-仓库地址：<https://github.com/SeaArt-Infra/sea_sdk_js>
+The package is ESM-only and requires Node.js 18 or newer.
 
-## 要求
+Repository: <https://github.com/SeaArt-Infra/sea_sdk_js>
 
-- Node.js 18+
-- ESM 项目
-- 无第三方运行时依赖
+## Available Resources
 
-## 安装
+| Resource | Client field | What it does |
+| --- | --- | --- |
+| Multimodal | `client.modal` / `client.Modal` | Create generation tasks, precharge tasks, poll task results, list models, fetch model skill docs, and run image/text/face/audio scans |
+| LLM | `client.llm` / `client.LLM` | Call chat completions, messages, responses, rerank, embeddings, model listing, and stream-compatible endpoints |
+| Passthrough | `client.passthrough` / `client.Passthrough` | Send raw provider-shaped requests through the model gateway while keeping status, headers, and body |
 
-当前仓库可直接通过 GitHub 地址安装：
+## How It Works
+
+1. Create a reusable `Client` with an API key and optional gateway endpoints.
+2. The SDK derives `modelBaseURL`, `llmBaseURL`, and `passthroughBaseURL` from `baseURL` unless they are set explicitly.
+3. Requests automatically include `Authorization: Bearer {apiKey}`, `User-Agent: seaart-sdk-js/{version}`, and `X-Project` when `project` is set.
+4. Multimodal tasks return task handles that can be polled with `client.modal.wait` or `task.wait`.
+5. LLM non-streaming methods return raw JSON strings; decode them with `decode(raw)`.
+
+## Quick Start
+
+Install from GitHub:
 
 ```bash
 npm install github:SeaArt-Infra/sea_sdk_js
 ```
 
-发布到 npm 后可按包名安装：
+After npm publishing, install by package name:
 
 ```bash
 npm install sea_sdk_js
 ```
 
-## 初始化
+Create a client and submit a multimodal task:
 
 ```js
-import { Client } from 'sea_sdk_js';
+import { Client, newTask } from 'sea_sdk_js';
 
+const client = new Client({
+  apiKey: 'sa-your-api-key',
+});
+
+const task = await client.modal.create(
+  newTask('alibaba_wanx26_i2v_flash')
+    .moderation(true)
+    .params({
+      input: {
+        img_url: 'https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg',
+        prompt: 'A dog and a girl playing in an autumn park',
+      },
+      parameters: {
+        resolution: '720P',
+        duration: 5,
+        prompt_extend: true,
+        watermark: false,
+      },
+    })
+    .build(),
+);
+
+console.log(task.id, task.status);
+```
+
+## Configuration
+
+Use the default gateway:
+
+```js
 const client = new Client({
   apiKey: 'sa-your-api-key',
 });
 ```
 
-默认网关地址为 `https://gateway.example.com`。如果你的环境使用自定义网关，通常只需要覆盖 `baseURL`，SDK 会基于同一个网关地址调用不同功能。
+Override endpoints when your environment uses custom routing:
 
 ```js
 const client = new Client({
   apiKey: 'sa-your-api-key',
   baseURL: 'https://gateway.example.com',
-  timeout: 60_000,
   project: 'my-project',
+  timeout: 60_000,
 });
 ```
 
-**请求会自动带上**
+`baseURL` is the root gateway URL. If `modelBaseURL`, `llmBaseURL`, or `passthroughBaseURL` are set, they override the derived service URL for that area.
 
-- `Authorization: Bearer {apiKey}`
-- `User-Agent: seaart-sdk-js/{version}`
-- `X-Project: {project}`，当 `project` 不为空时
+## Request Options
 
-## 请求选项
+Attach per-request headers to any resource call:
 
 ```js
 import { withHeader, withHeaders } from 'sea_sdk_js';
 
-await client.llm.listModels(withHeader('X-Trace-Id', 'trace-123'));
-
-await client.llm.chatCompletions(
-  { model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }] },
-  withHeaders({ 'X-Tenant-Id': 'tenant-a' }),
+const raw = await client.llm.chatCompletions(
+  {
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+  },
+  withHeader('X-Trace-Id', 'trace-123'),
 );
+
+await client.llm.listModels(withHeaders({ 'X-Tenant-Id': 'tenant-a' }));
 ```
 
-## 多模态 API
+## Multimodal Tasks
 
-多模态任务请求统一使用 `input[0].params` 承载模型字段。不同模型的 `params` 结构可能不同：有些模型需要 `input` / `parameters` 两层，有些模型直接把模型字段平铺在 `params` 下。
-
-`moderation` 为可选布尔字段：`true` 表示开白，`false` 表示非开白。
-
-**创建任务**
+Create tasks with a raw request object or the task builder. The builder keeps model-specific parameters under `input[0].params` and avoids SDK-side provider enums.
 
 ```js
-const task = await client.modal.create({
-  moderation: true,
-  model: 'alibaba_wanx26_i2v_flash',
-  input: [
-    {
-      params: {
-        input: {
-          img_url: 'https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg',
-          prompt: '小狗和女孩在秋天的公园里快乐地玩耍',
-        },
-        parameters: {
-          resolution: '720P',
-          duration: 5,
-          prompt_extend: true,
-          watermark: false,
-        },
-      },
-    },
-  ],
-});
-
-console.log(task.id, task.status);
-```
-
-### 预扣费查询
-
-预扣费查询路由为 `/model/v1/generation/precharge`，请求参数与创建任务相同。
-
-```js
-const resp = await client.modal.precharge({
-  id: 'd88pmute87128c73e9r0d0',
-  model: 'volces_seedream_4_5',
-  input: [{ params: { prompt: 'A dog' } }],
-  moderation: false,
-});
-
-console.log(resp.status);
-console.log(resp.data.billing_model, resp.data.cost, resp.data.currency);
-```
-
-**成功响应示例**
-
-```json
-{
-  "data": {
-    "billing_model": "volces_seedream_4_5",
-    "cost": "0.035714285714",
-    "currency": "USD",
-    "discount": 0.7,
-    "hash": "v1:18a733f04d227d572950ed8f1f98a9ba4cd37c168c5c98c05a5e574984f58eaf",
-    "model": "volces_seedream_4_5",
-    "original_model": "volces_seedream_4_5",
-    "sample_count": 4,
-    "updated_at": 1780633394064
-  },
-  "status": "success"
-}
-```
-
-**未匹配上预扣费数据时，可能返回**
-
-```json
-{
-  "data": {
-    "cost": null,
-    "hash": "v1:02833b68895eeb61bf214d35fd669502ef788e4c8d58505893414ae9632ca8ab",
-    "model": "volces_seedream_4_5",
-    "original_model": "volces_seedream_4_5",
-    "reason": "COST_CACHE_MISS"
-  },
-  "status": "failed"
-}
-```
-
-### Builder
-
-```js
-import { newTask } from 'sea_sdk_js';
-
-const body = newTask('alibaba_wanx26_i2v_flash')
-  .moderation(true)
-  .params({
-    input: {
-      img_url: 'https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg',
-      prompt: '小狗和女孩在秋天的公园里快乐地玩耍',
-    },
-    parameters: {
-      resolution: '720P',
-      duration: 5,
-      prompt_extend: true,
-      watermark: false,
-    },
-  })
+const body = newTask('volces_seedream_4_5')
+  .moderation(false)
+  .params({ prompt: 'A dog' })
   .metadata('trace_id', 'trace-123')
   .build();
 
 const task = await client.modal.create(body);
 ```
 
-**模型字段平铺在 `params` 下的示例**
+Precharge uses the same request shape as task creation:
 
 ```js
-const body = newTask('grok_imagine_image')
-  .field('dash_scope', true)
-  .moderation(true)
-  .params({
-    aspect_ratio: '1:2',
-    prompt: 'Lego art version of Superman and Batman，Night scene',
-    n: 1,
-    resolution: '1k',
-  })
-  .build();
+const preview = await client.modal.precharge(
+  newTask('volces_seedream_4_5')
+    .moderation(false)
+    .field('id', 'd88pmute87128c73e9r0d0')
+    .params({ prompt: 'A dog' })
+    .build(),
+);
+
+console.log(preview.status, preview.data.cost, preview.data.currency);
 ```
 
-**Go 风格别名也可用**
-
-```js
-const task = await client.Modal.Create(body);
-const preview = await client.Modal.Precharge(body);
-```
-
-兼容说明：历史版本导出的 `user`、`text`、`imageURL`、`videoURL`、`audioURL`、`fileID` 以及 builder 上的 `user()` / `input()` 方法仍保留，避免已有调用方升级后导入失败；但多模态网关不再推荐 message/content 结构，新接入请统一使用 `params()`。
-
-### 等待任务完成
+Wait for completion from the client or from a task handle:
 
 ```js
 import {
@@ -210,24 +147,29 @@ import {
 } from 'sea_sdk_js';
 
 const done = await client.modal.wait(
-  'task_abc123',
+  task.id,
   withPollInterval(3000),
   withPollTimeout(5 * 60_000),
   withPollCallback((status, progress) => {
     console.log(status, progress);
   }),
 );
-
-console.log(done.output);
 ```
-
-**创建后的 `task` 也可以直接等待**
 
 ```js
 const done = await task.wait(withPollInterval(3000));
 ```
 
-### 模型列表和参数详情
+Go-style aliases are available for migration compatibility:
+
+```js
+const task = await client.Modal.Create(body);
+const preview = await client.Modal.Precharge(body);
+```
+
+## Model Metadata
+
+Search models and fetch model skill markdown:
 
 ```js
 const models = await client.modal.listModels({
@@ -242,38 +184,9 @@ const models = await client.modal.listModels({
 const skillMarkdown = await client.modal.getModelSkill('alibaba_animate_anyone_detect');
 ```
 
-### Passthrough API（厂商透传）
+## Safety Scans
 
-Passthrough 会原样返回 HTTP 状态码、响应头和 body。即使上游返回 4xx/5xx，也不会转成 SDK 错误。
-
-```js
-const resp = await client.passthrough.post(
-  '/kling/v1/videos/text2video',
-  {
-    model_name: 'kling-v1',
-    prompt: 'cinematic shot',
-  },
-  withHeader('X-Trace-Id', 'trace-123'),
-);
-
-console.log(resp.statusCode);
-console.log(resp.headers.get('x-task-route'));
-console.log(resp.json());
-```
-
-**原始 body**
-
-```js
-const body = new TextEncoder().encode('{"contents":[{"parts":[{"text":"paint a cat"}]}]}');
-
-const resp = await client.passthrough.requestRaw(
-  'POST',
-  'google/v1beta/models/gemini-2.5-flash-image:generateContent',
-  body,
-);
-```
-
-## 图片/视频鉴黄
+The modal resource also exposes safety scan APIs:
 
 ```js
 import {
@@ -283,7 +196,7 @@ import {
   ImageScanRiskTypeViolent,
 } from 'sea_sdk_js';
 
-const resp = await client.modal.scanImage({
+const imageScan = await client.modal.scanImage({
   uri: 'https://example.com/image.jpg',
   risk_types: [
     ImageScanRiskTypePolity,
@@ -294,22 +207,7 @@ const resp = await client.modal.scanImage({
   detected_age: 0,
   is_video: 0,
 });
-
-console.log(resp.ok, resp.nsfw_level, resp.risk_types);
 ```
-
-**Go SDK 的字段风格也会被归一化**
-
-```js
-await client.modal.scanImage({
-  URI: 'https://example.com/video.mp4',
-  RiskTypes: [ImageScanRiskTypeErotic, ImageScanRiskTypeViolent],
-  IsVideo: 1,
-  Duration: 12.5,
-});
-```
-
-## 敏感词检测
 
 ```js
 const textScan = await client.modal.scanText({
@@ -318,12 +216,7 @@ const textScan = await client.modal.scanText({
   area_types: [2],
   way: 0,
 });
-console.log(textScan.data.is_sensitive);
-console.log(textScan.data.sensitive_words);
-console.log(textScan.data.combination);
 ```
-
-## 人脸检测
 
 ```js
 const faceScan = await client.modal.scanFace({
@@ -333,69 +226,50 @@ const faceScan = await client.modal.scanFace({
 });
 ```
 
-## 音频检测
-
 ```js
 const audioScan = await client.modal.scanAudio({
   uri: 'https://example.com/audio/test.mp3',
   rec_type: 'AUDIOPOLITICAL_MOAN_ANTHEN',
   duration: 15,
 });
-console.log(audioScan.riskLevel, audioScan.riskDescription);
 ```
 
-`scanText` 的 `data` 包含 `sensitive_words`、`is_sensitive` 和 `combination`。`scanText`、`scanFace` 和 `scanAudio` 会把未建模响应字段保留在 `extra`。
+`scanText`, `scanFace`, and `scanAudio` preserve unmodeled response fields in `extra`. Go-style request field names such as `URI`, `RiskTypes`, and `IsVideo` are normalized.
 
-## 大语言模型 API
+## LLM APIs
 
-**非流式方法返回原始 JSON 字符串，使用 `decode()` 解析**
+Non-streaming LLM methods return raw JSON strings:
 
 ```js
 import { decode } from 'sea_sdk_js';
 
 const raw = await client.llm.chatCompletions({
   model: 'gpt-4o-mini',
-  messages: [{ role: 'user', content: 'hi' }],
-  max_tokens: 16,
+  messages: [{ role: 'user', content: 'hello' }],
+  max_tokens: 64,
 });
 
 const resp = decode(raw);
 console.log(resp.choices[0].message.content);
 ```
 
-**已支持的 LLM 方法**
-
-- `client.llm.chatCompletions(payload)`
-- `client.llm.chatCompletionsStream(payload)`
-- `client.llm.messages(payload)`
-- `client.llm.messagesStream(payload)`
-- `client.llm.responses(payload)`
-- `client.llm.responsesStream(payload)`
-- `client.llm.rerank(payload)`
-- `client.llm.embeddings(payload)`
-- `client.llm.listModels()`
-
-非流式方法会拒绝 `stream: true`，请改用对应的 stream 方法。
-
-### 流式 SSE
-
-**流式方法返回 async iterable**
+Streaming methods return async iterables of SSE events:
 
 ```js
 for await (const event of client.llm.chatCompletionsStream({
   model: 'gpt-4o-mini',
-  messages: [{ role: 'user', content: 'hi' }],
+  messages: [{ role: 'user', content: 'hello' }],
 })) {
   if (event.done) {
     break;
   }
 
   const chunk = decode(event.data);
-  console.log(chunk);
+  console.log(chunk.choices?.[0]?.delta?.content ?? '');
 }
 ```
 
-**文本拼接 helper**
+Use text assemblers for Responses or Messages streams:
 
 ```js
 import { ResponsesStreamTextAssembler } from 'sea_sdk_js';
@@ -414,9 +288,50 @@ for await (const event of client.llm.responsesStream({
 console.log(text.text());
 ```
 
-## 错误
+## Provider Passthrough
 
-**SDK 错误统一为 `SeaArtError`**
+Use passthrough when the caller needs a provider-native API shape. Paths must be relative and include the provider prefix, such as `/kling/...`, `/vidu/...`, or `/google/...`.
+
+```js
+const resp = await client.passthrough.post(
+  '/kling/v1/videos/text2video',
+  {
+    model_name: 'kling-v1',
+    prompt: 'cinematic shot',
+  },
+  withHeader('X-Trace-Id', 'trace-123'),
+);
+
+console.log(resp.statusCode);
+console.log(resp.headers.get('x-task-route'));
+console.log(resp.json());
+```
+
+Use `requestRaw` to forward raw bytes:
+
+```js
+const body = new TextEncoder().encode('{"contents":[{"parts":[{"text":"paint a cat"}]}]}');
+
+const resp = await client.passthrough.requestRaw(
+  'POST',
+  '/google/v1beta/models/gemini-2.5-flash-image:generateContent',
+  body,
+);
+```
+
+## API Reference
+
+| Area | Methods |
+| --- | --- |
+| Modal | `create`, `precharge`, `get`, `wait`, `listModels`, `searchModels`, `getModelSkill`, `scanImage`, `scanText`, `scanFace`, `scanAudio` |
+| Task | `wait` |
+| LLM | `chatCompletions`, `chatCompletionsStream`, `messages`, `messagesStream`, `responses`, `responsesStream`, `rerank`, `embeddings`, `listModels` |
+| Passthrough | `request`, `requestRaw`, `get`, `post`, `put`, `delete` |
+| Helpers | `newTask`, `decode`, `withHeader`, `withHeaders`, `withPollInterval`, `withPollTimeout`, `withPollCallback` |
+
+## Errors
+
+SDK errors use `SeaArtError` with a stable `kind`:
 
 ```js
 import { ErrAuth, SeaArtError } from 'sea_sdk_js';
@@ -430,17 +345,17 @@ try {
 }
 ```
 
-**错误分类**
+Common kinds include `auth`, `quota`, `timeout`, `network`, `task_failed`, and `general`.
 
-- `auth`
-- `quota`
-- `timeout`
-- `network`
-- `task_failed`
-- `general`
-
-## 测试
+## Development
 
 ```bash
 npm test
 ```
+
+## Next Steps
+
+- Use `client.modal.create` and `client.modal.wait` for generation task workflows.
+- Use `client.llm.*Stream` methods for SSE streaming.
+- Use `ResponsesStreamTextAssembler` or `MessagesStreamTextAssembler` for streamed text assembly.
+- Use `client.passthrough` only when you need provider-native request shapes.
