@@ -412,9 +412,9 @@ console.log(result.extra);
 | `ok` | `boolean` | 检测请求是否成功完成 |
 | `error` | `string` | 上游业务错误信息；成功时通常为空 |
 | `usage` | `object` | 网关注入的计费信息 |
-| `extra` | `object` | 上游返回的未建模字段，例如风险等级、标签、人脸数量等 |
+| `extra` | `object` | 上游返回的未建模字段，例如人脸数量、人脸详情等 |
 
-**不含人脸图片响应示例（SDK 返回结构）**
+**未检测到人脸响应示例（SDK 返回结构）**
 
 ```json
 {
@@ -424,26 +424,28 @@ console.log(result.extra);
     "cost": "1"
   },
   "extra": {
-    "nsfw_level": 0,
-    "label_items": [],
-    "risk_types": []
+    "face_count": 0,
+    "faces": []
   }
 }
 ```
 
-**含人脸图片响应示例（SDK 返回结构）**
+**检测到人脸响应示例（SDK 返回结构）**
 
 ```json
 {
   "ok": true,
   "error": "",
   "usage": {
-    "cost": "1"
+    "cost": "0.002"
   },
   "extra": {
-    "nsfw_level": 0,
-    "label_items": [],
-    "risk_types": []
+    "face_count": 1,
+    "faces": [
+      {
+        "score": 0.99
+      }
+    ]
   }
 }
 ```
