@@ -3,7 +3,7 @@
 SeaArt AI 平台的 Node.js SDK。该版本从 `seaart_sdk_go` 翻译而来，公开三类能力：
 
 - `client.modal` / `client.Modal`：多模态任务接口
-- `client.llm` / `client.LLM`：LLM 透传接口
+- `client.llm` / `client.LLM`：大语言模型透传接口
 - `client.passthrough` / `client.Passthrough`：厂商原始 API 透传接口
 
 仓库地址：<https://github.com/SeaArt-Infra/sea_sdk_js>
@@ -38,34 +38,18 @@ const client = new Client({
 });
 ```
 
-默认网关配置：
-
-- `baseURL`: `https://gateway.example.com`
-- `modelBaseURL`: `https://gateway.example.com/model`
-- `llmBaseURL`: `https://gateway.example.com/llm`
-- `passthroughBaseURL`: `https://gateway.example.com/model`
-
-如果显式传入 `baseURL`，SDK 会默认派生：
-
-- `modelBaseURL = baseURL + "/model"`
-- `llmBaseURL = baseURL + "/llm"`
-- `passthroughBaseURL = modelBaseURL`
-
-也可以分别覆盖：
+默认网关地址为 `https://gateway.example.com`。如果你的环境使用自定义网关，通常只需要覆盖 `baseURL`，SDK 会基于同一个网关地址调用不同功能。
 
 ```js
 const client = new Client({
   apiKey: 'sa-your-api-key',
   baseURL: 'https://gateway.example.com',
-  modelBaseURL: 'https://mm-gateway.example.com',
-  llmBaseURL: 'https://llm-gateway.example.com',
-  passthroughBaseURL: 'https://mm-gateway.example.com',
   timeout: 60_000,
   project: 'my-project',
 });
 ```
 
-请求会自动带上：
+**请求会自动带上**
 
 - `Authorization: Bearer {apiKey}`
 - `User-Agent: seaart-sdk-js/{version}`
@@ -84,54 +68,137 @@ await client.llm.chatCompletions(
 );
 ```
 
-## Modal API
+## 多模态 API
 
-### 创建任务
+多模态任务请求统一使用 `input[0].params` 承载模型字段。不同模型的 `params` 结构可能不同：有些模型需要 `input` / `parameters` 两层，有些模型直接把模型字段平铺在 `params` 下。
+
+`moderation` 为可选布尔字段：`true` 表示开白，`false` 表示非开白。
+
+**创建任务**
 
 ```js
 const task = await client.modal.create({
-  model: 'vidu_q3_reference',
+  moderation: true,
+  model: 'alibaba_wanx26_i2v_flash',
   input: [
     {
-      type: 'message',
-      role: 'user',
-      content: [
-        { type: 'text', text: 'cinematic shot' },
-        { type: 'image_url', url: 'https://example.com/ref1.webp' },
-      ],
+      params: {
+        input: {
+          img_url: 'https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg',
+          prompt: '小狗和女孩在秋天的公园里快乐地玩耍',
+        },
+        parameters: {
+          resolution: '720P',
+          duration: 5,
+          prompt_extend: true,
+          watermark: false,
+        },
+      },
     },
   ],
-  parameters: {
-    duration: 5,
-  },
 });
 
 console.log(task.id, task.status);
 ```
 
+### 预扣费查询
+
+预扣费查询路由为 `/model/v1/generation/precharge`，请求参数与创建任务相同。
+
+```js
+const resp = await client.modal.precharge({
+  id: 'd88pmute87128c73e9r0d0',
+  model: 'volces_seedream_4_5',
+  input: [{ params: { prompt: 'A dog' } }],
+  moderation: false,
+});
+
+console.log(resp.status);
+console.log(resp.data.billing_model, resp.data.cost, resp.data.currency);
+```
+
+**成功响应示例**
+
+```json
+{
+  "data": {
+    "billing_model": "volces_seedream_4_5",
+    "cost": "0.035714285714",
+    "currency": "USD",
+    "discount": 0.7,
+    "hash": "v1:18a733f04d227d572950ed8f1f98a9ba4cd37c168c5c98c05a5e574984f58eaf",
+    "model": "volces_seedream_4_5",
+    "original_model": "volces_seedream_4_5",
+    "sample_count": 4,
+    "updated_at": 1780633394064
+  },
+  "status": "success"
+}
+```
+
+**未匹配上预扣费数据时，可能返回**
+
+```json
+{
+  "data": {
+    "cost": null,
+    "hash": "v1:02833b68895eeb61bf214d35fd669502ef788e4c8d58505893414ae9632ca8ab",
+    "model": "volces_seedream_4_5",
+    "original_model": "volces_seedream_4_5",
+    "reason": "COST_CACHE_MISS"
+  },
+  "status": "failed"
+}
+```
+
 ### Builder
 
 ```js
-import { imageURL, newTask, text } from 'sea_sdk_js';
+import { newTask } from 'sea_sdk_js';
 
-const body = newTask('vidu_q3_reference')
-  .user(
-    text('cinematic shot'),
-    imageURL('https://example.com/ref1.webp'),
-    imageURL('https://example.com/ref2.webp'),
-  )
-  .param('duration', 5)
+const body = newTask('alibaba_wanx26_i2v_flash')
+  .moderation(true)
+  .params({
+    input: {
+      img_url: 'https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg',
+      prompt: '小狗和女孩在秋天的公园里快乐地玩耍',
+    },
+    parameters: {
+      resolution: '720P',
+      duration: 5,
+      prompt_extend: true,
+      watermark: false,
+    },
+  })
   .metadata('trace_id', 'trace-123')
   .build();
 
 const task = await client.modal.create(body);
 ```
 
-Go 风格别名也可用：
+**模型字段平铺在 `params` 下的示例**
+
+```js
+const body = newTask('grok_imagine_image')
+  .field('dash_scope', true)
+  .moderation(true)
+  .params({
+    aspect_ratio: '1:2',
+    prompt: 'Lego art version of Superman and Batman，Night scene',
+    n: 1,
+    resolution: '1k',
+  })
+  .build();
+```
+
+**Go 风格别名也可用**
 
 ```js
 const task = await client.Modal.Create(body);
+const preview = await client.Modal.Precharge(body);
 ```
+
+兼容说明：历史版本导出的 `user`、`text`、`imageURL`、`videoURL`、`audioURL`、`fileID` 以及 builder 上的 `user()` / `input()` 方法仍保留，避免已有调用方升级后导入失败；但多模态网关不再推荐 message/content 结构，新接入请统一使用 `params()`。
 
 ### 等待任务完成
 
@@ -154,7 +221,7 @@ const done = await client.modal.wait(
 console.log(done.output);
 ```
 
-创建后的 `task` 也可以直接等待：
+**创建后的 `task` 也可以直接等待**
 
 ```js
 const done = await task.wait(withPollInterval(3000));
@@ -175,7 +242,38 @@ const models = await client.modal.listModels({
 const skillMarkdown = await client.modal.getModelSkill('alibaba_animate_anyone_detect');
 ```
 
-### 图片/视频鉴黄
+### Passthrough API（厂商透传）
+
+Passthrough 会原样返回 HTTP 状态码、响应头和 body。即使上游返回 4xx/5xx，也不会转成 SDK 错误。
+
+```js
+const resp = await client.passthrough.post(
+  '/kling/v1/videos/text2video',
+  {
+    model_name: 'kling-v1',
+    prompt: 'cinematic shot',
+  },
+  withHeader('X-Trace-Id', 'trace-123'),
+);
+
+console.log(resp.statusCode);
+console.log(resp.headers.get('x-task-route'));
+console.log(resp.json());
+```
+
+**原始 body**
+
+```js
+const body = new TextEncoder().encode('{"contents":[{"parts":[{"text":"paint a cat"}]}]}');
+
+const resp = await client.passthrough.requestRaw(
+  'POST',
+  'google/v1beta/models/gemini-2.5-flash-image:generateContent',
+  body,
+);
+```
+
+## 图片/视频鉴黄
 
 ```js
 import {
@@ -200,7 +298,7 @@ const resp = await client.modal.scanImage({
 console.log(resp.ok, resp.nsfw_level, resp.risk_types);
 ```
 
-Go SDK 的字段风格也会被归一化：
+**Go SDK 的字段风格也会被归一化**
 
 ```js
 await client.modal.scanImage({
@@ -211,7 +309,7 @@ await client.modal.scanImage({
 });
 ```
 
-### 敏感词和人脸检测
+## 敏感词检测
 
 ```js
 const textScan = await client.modal.scanText({
@@ -223,7 +321,11 @@ const textScan = await client.modal.scanText({
 console.log(textScan.data.is_sensitive);
 console.log(textScan.data.sensitive_words);
 console.log(textScan.data.combination);
+```
 
+## 人脸检测
+
+```js
 const faceScan = await client.modal.scanFace({
   uri: 'https://example.com/image.jpg',
   is_video: 0,
@@ -231,11 +333,22 @@ const faceScan = await client.modal.scanFace({
 });
 ```
 
-`scanText` 的 `data` 包含 `sensitive_words`、`is_sensitive` 和 `combination`。`scanText` 和 `scanFace` 会把未建模响应字段保留在 `extra`。
+## 音频检测
 
-## LLM API
+```js
+const audioScan = await client.modal.scanAudio({
+  uri: 'https://example.com/audio/test.mp3',
+  rec_type: 'AUDIOPOLITICAL_MOAN_ANTHEN',
+  duration: 15,
+});
+console.log(audioScan.riskLevel, audioScan.riskDescription);
+```
 
-非流式方法返回原始 JSON 字符串，使用 `decode()` 解析：
+`scanText` 的 `data` 包含 `sensitive_words`、`is_sensitive` 和 `combination`。`scanText`、`scanFace` 和 `scanAudio` 会把未建模响应字段保留在 `extra`。
+
+## 大语言模型 API
+
+**非流式方法返回原始 JSON 字符串，使用 `decode()` 解析**
 
 ```js
 import { decode } from 'sea_sdk_js';
@@ -250,7 +363,7 @@ const resp = decode(raw);
 console.log(resp.choices[0].message.content);
 ```
 
-已支持的 LLM 方法：
+**已支持的 LLM 方法**
 
 - `client.llm.chatCompletions(payload)`
 - `client.llm.chatCompletionsStream(payload)`
@@ -266,7 +379,7 @@ console.log(resp.choices[0].message.content);
 
 ### 流式 SSE
 
-流式方法返回 async iterable：
+**流式方法返回 async iterable**
 
 ```js
 for await (const event of client.llm.chatCompletionsStream({
@@ -282,7 +395,7 @@ for await (const event of client.llm.chatCompletionsStream({
 }
 ```
 
-文本拼接 helper：
+**文本拼接 helper**
 
 ```js
 import { ResponsesStreamTextAssembler } from 'sea_sdk_js';
@@ -301,40 +414,9 @@ for await (const event of client.llm.responsesStream({
 console.log(text.text());
 ```
 
-## Passthrough API
-
-Passthrough 会原样返回 HTTP 状态码、响应头和 body。即使上游返回 4xx/5xx，也不会转成 SDK 错误。
-
-```js
-const resp = await client.passthrough.post(
-  '/kling/v1/videos/text2video',
-  {
-    model_name: 'kling-v1',
-    prompt: 'cinematic shot',
-  },
-  withHeader('X-Trace-Id', 'trace-123'),
-);
-
-console.log(resp.statusCode);
-console.log(resp.headers.get('x-task-route'));
-console.log(resp.json());
-```
-
-原始 body：
-
-```js
-const body = new TextEncoder().encode('{"contents":[{"parts":[{"text":"paint a cat"}]}]}');
-
-const resp = await client.passthrough.requestRaw(
-  'POST',
-  'google/v1beta/models/gemini-2.5-flash-image:generateContent',
-  body,
-);
-```
-
 ## 错误
 
-SDK 错误统一为 `SeaArtError`：
+**SDK 错误统一为 `SeaArtError`**
 
 ```js
 import { ErrAuth, SeaArtError } from 'sea_sdk_js';
@@ -348,7 +430,7 @@ try {
 }
 ```
 
-错误分类：
+**错误分类**
 
 - `auth`
 - `quota`
