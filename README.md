@@ -312,9 +312,16 @@ const faceScan = await client.modal.scanFace({
   is_video: 0,
   scene: 'avatar',
 });
+
+const audioScan = await client.modal.scanAudio({
+  uri: 'https://example.com/audio/test.mp3',
+  rec_type: 'AUDIOPOLITICAL_MOAN_ANTHEN',
+  duration: 15,
+});
+console.log(audioScan.riskLevel, audioScan.riskDescription);
 ```
 
-`scanText` 的 `data` 包含 `sensitive_words`、`is_sensitive` 和 `combination`。`scanText` 和 `scanFace` 会把未建模响应字段保留在 `extra`。
+`scanText` 的 `data` 包含 `sensitive_words`、`is_sensitive` 和 `combination`。`scanText`、`scanFace` 和 `scanAudio` 会把未建模响应字段保留在 `extra`。
 
 ## 大语言模型 API
 

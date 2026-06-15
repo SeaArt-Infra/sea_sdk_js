@@ -57,6 +57,7 @@ export class Client {
       scanImage: 'ScanImage',
       scanText: 'ScanText',
       scanFace: 'ScanFace',
+      scanAudio: 'ScanAudio',
     });
     this.LLM = goStyleService(this.llm, {
       chatCompletions: 'ChatCompletions',

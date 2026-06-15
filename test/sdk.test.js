@@ -226,6 +226,20 @@ test('Modal scan APIs normalize Go and JS request field names', async (t) => {
       return;
     }
 
+    if (req.url === '/v1/audio/scan') {
+      assert.equal(body.uri, 'https://example.com/audio/test.mp3');
+      assert.equal(body.rec_type, 'AUDIOPOLITICAL_MOAN_ANTHEN');
+      assert.equal(body.duration, 15);
+      writeJSON(res, 200, {
+        riskDescription: '涉政音频',
+        riskLevel: 'REJECT',
+        allLabels: [{ label1: 'politics', label2: 'leader', description: '涉政内容' }],
+        usage: { cost: '0.001' },
+        request_id: 'audio-risk-1',
+      });
+      return;
+    }
+
     assert.equal(req.url, '/v1/face/scan');
     assert.equal(body.uri, 'https://example.com/face.jpg');
     assert.equal(body.is_video, 0);
@@ -252,7 +266,17 @@ test('Modal scan APIs normalize Go and JS request field names', async (t) => {
   const face = await client.modal.scanFace({ URI: 'https://example.com/face.jpg', IsVideo: 0, Scene: 'avatar' });
   assert.equal(face.ok, true);
   assert.equal(face.extra.face_count, 1);
-  assert.deepEqual(seen, ['/v1/image/scan', '/v1/text/scan', '/v1/face/scan']);
+
+  const audio = await client.modal.scanAudio({
+    URI: 'https://example.com/audio/test.mp3',
+    RecType: 'AUDIOPOLITICAL_MOAN_ANTHEN',
+    Duration: 15,
+  });
+  assert.equal(audio.riskLevel, 'REJECT');
+  assert.equal(audio.allLabels[0].label1, 'politics');
+  assert.equal(audio.usage.cost, '0.001');
+  assert.equal(audio.extra.request_id, 'audio-risk-1');
+  assert.deepEqual(seen, ['/v1/image/scan', '/v1/text/scan', '/v1/face/scan', '/v1/audio/scan']);
 });
 
 test('Modal wait completes and Task.wait uses attached client', async (t) => {

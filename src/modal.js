@@ -9,6 +9,7 @@ const pathModelSkill = '/v1/models/skill/';
 const pathImageScan = '/v1/image/scan';
 const pathTextScan = '/v1/text/scan';
 const pathFaceScan = '/v1/face/scan';
+const pathAudioScan = '/v1/audio/scan';
 const pollNetworkRetryLimit = 3;
 
 export class ModalService {
@@ -118,6 +119,19 @@ export class ModalService {
     }
     return splitExtra(decodeJSON(response.body), ['ok', 'error', 'usage']);
   }
+
+  async scanAudio(request, ...options) {
+    const body = normalizeAudioScanRequest(request);
+    if (!body.uri) {
+      throw new SeaArtError({ kind: ErrGeneral, message: 'uri is required' });
+    }
+    const { headers, signal } = splitOptions(options);
+    const response = await this.client.request('POST', pathAudioScan, body, headers, { signal });
+    if (response.status >= 400) {
+      throw modalHTTPError(response.status, response.body);
+    }
+    return splitExtra(decodeJSON(response.body), ['riskDescription', 'riskLevel', 'allLabels', 'usage']);
+  }
 }
 
 function normalizeImageScanRequest(request = {}) {
@@ -155,6 +169,15 @@ function normalizeFaceScanRequest(request = {}) {
   });
 }
 
+function normalizeAudioScanRequest(request = {}) {
+  return omitUndefined({
+    ...request,
+    uri: String(request.uri ?? request.URI ?? '').trim(),
+    rec_type: request.rec_type ?? request.recType ?? request.RecType,
+    duration: request.duration ?? request.Duration,
+  });
+}
+
 function omitUndefined(value) {
   const output = {};
   for (const [key, item] of Object.entries(value)) {
@@ -179,6 +202,8 @@ function omitUndefined(value) {
   delete output.imgBase64;
   delete output.Canary;
   delete output.Duration;
+  delete output.RecType;
+  delete output.recType;
   return output;
 }
 
