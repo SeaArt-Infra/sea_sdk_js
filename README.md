@@ -412,7 +412,7 @@ console.log(result.extra);
 | `ok` | `boolean` | 检测请求是否成功完成 |
 | `error` | `string` | 上游业务错误信息；成功时通常为空 |
 | `usage` | `object` | 网关注入的计费信息 |
-| `extra` | `object` | 上游返回的未建模字段，例如人脸数量、人脸详情等 |
+| `extra` | `object` | 上游返回的未建模字段，例如人脸数量等 |
 
 **未检测到人脸响应示例（SDK 返回结构）**
 
@@ -424,8 +424,7 @@ console.log(result.extra);
     "cost": "1"
   },
   "extra": {
-    "face_count": 0,
-    "faces": []
+    "face_count": 0
   }
 }
 ```
@@ -440,12 +439,7 @@ console.log(result.extra);
     "cost": "0.002"
   },
   "extra": {
-    "face_count": 1,
-    "faces": [
-      {
-        "score": 0.99
-      }
-    ]
+    "face_count": 1
   }
 }
 ```
