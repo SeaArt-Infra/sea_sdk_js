@@ -8,6 +8,7 @@ const pathModelSkillSearch = '/v1/models/skill/search';
 const pathModelSkill = '/v1/models/skill/';
 const pathImageScan = '/v1/image/scan';
 const pathTextScan = '/v1/text/scan';
+const pathTextContentScan = '/v1/text/content/scan';
 const pathFaceScan = '/v1/face/scan';
 const pathAudioScan = '/v1/audio/scan';
 const pollNetworkRetryLimit = 3;
@@ -107,6 +108,19 @@ export class ModalService {
     return splitExtra(decodeJSON(response.body), ['data', 'status', 'usage']);
   }
 
+  async scanTextContent(request, ...options) {
+    const body = normalizeTextContentScanRequest(request);
+    if (!String(body.text ?? '').trim()) {
+      throw new SeaArtError({ kind: ErrGeneral, message: 'text is required' });
+    }
+    const { headers, signal } = splitOptions(options);
+    const response = await this.client.request('POST', pathTextContentScan, body, headers, { signal });
+    if (response.status >= 400) {
+      throw modalHTTPError(response.status, response.body);
+    }
+    return splitExtra(decodeJSON(response.body), ['ok', 'level', 'label', 'reason', 'usage']);
+  }
+
   async scanFace(request, ...options) {
     const body = normalizeFaceScanRequest(request);
     if (!body.uri && !body.img_base64) {
@@ -157,6 +171,16 @@ function normalizeTextScanRequest(request = {}) {
   });
 }
 
+function normalizeTextContentScanRequest(request = {}) {
+  const text = request.text ?? request.Text ?? '';
+  return omitUndefined({
+    ...request,
+    text,
+    canary: request.canary ?? request.Canary,
+    scene: request.scene ?? request.Scene,
+  });
+}
+
 function normalizeFaceScanRequest(request = {}) {
   return omitUndefined({
     ...request,
@@ -198,6 +222,7 @@ function omitUndefined(value) {
   delete output.Way;
   delete output.Scenes;
   delete output.areaTypes;
+  delete output.Canary;
   delete output.ImgBase64;
   delete output.imgBase64;
   delete output.Canary;

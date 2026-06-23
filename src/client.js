@@ -56,6 +56,7 @@ export class Client {
       getModelSkill: 'GetModelSkill',
       scanImage: 'ScanImage',
       scanText: 'ScanText',
+      scanTextContent: 'ScanTextContent',
       scanFace: 'ScanFace',
       scanAudio: 'ScanAudio',
     });

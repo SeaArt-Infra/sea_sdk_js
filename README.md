@@ -18,6 +18,7 @@ Sea AI 网关的 Node.js SDK，用于通过统一网关调用多模态、LLM 和
 | [多模态 API](#多模态-api) | `client.modal` / `client.Modal` | 模型列表、参数详情、生成任务、预扣费查询和厂商透传 |
 | [图片/视频鉴黄](#图片视频鉴黄) | `client.modal.scanImage(...)` | 检测图片、GIF 或视频内容安全风险 |
 | [敏感词检测](#敏感词检测) | `client.modal.scanText(...)` | 检测文本敏感词和组合词风险 |
+| [文本内容安全审核](#文本内容安全审核) | `client.modal.scanTextContent(...)` | 审核短文本内容安全风险等级和分类标签 |
 | [人脸检测](#人脸检测) | `client.modal.scanFace(...)` | 检测图片或视频中的人脸相关结果 |
 | [音频检测](#音频检测) | `client.modal.scanAudio(...)` | 检测音频内容风险 |
 | [LLM API](#llm-api) | `client.llm` / `client.LLM` | OpenAI / Anthropic / Responses / Embeddings / Rerank 等兼容接口 |
@@ -386,6 +387,46 @@ console.log(result.extra);
     "msg": "success",
     "request_id": "b5ebfb02a9d11adf98b05b397bd82e9e",
     "code": 10000
+  }
+}
+```
+
+## 文本内容安全审核
+
+文本内容安全审核接口对应 `POST /v1/text/content/scan`，用于对短文本进行内容安全审核。该接口与旧敏感词检测 `POST /v1/text/scan` 并存。
+
+```js
+const result = await client.modal.scanTextContent({
+  text: 'hello world',
+  canary: 'A',
+  scene: 'user_name',
+});
+
+console.log(result.ok, result.level, result.label, result.reason);
+console.log(result.usage);
+```
+
+**响应字段**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ok` | `boolean` | 是否审核成功 |
+| `level` | `number` | 风险等级，范围 `0-6`，数值越大风险越高 |
+| `label` | `string` | 分类标签，英文 |
+| `reason` | `string` | 判定理由，英文或错误原因 |
+| `usage` | `object` | 网关注入的计费信息 |
+| `extra` | `object` | 上游返回的未建模字段 |
+
+**审核通过响应示例**
+
+```json
+{
+  "ok": true,
+  "level": 0,
+  "label": "normal",
+  "reason": "Neutral greeting expression",
+  "usage": {
+    "cost": "0.001"
   }
 }
 ```

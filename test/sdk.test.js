@@ -226,6 +226,24 @@ test('Modal scan APIs normalize Go and JS request field names', async (t) => {
       return;
     }
 
+    if (req.url === '/v1/text/content/scan') {
+      assert.equal(body.text, 'hello world');
+      assert.equal(body.canary, 'A');
+      assert.equal(body.scene, 'user_name');
+      assert.equal(body.Text, undefined);
+      assert.equal(body.Canary, undefined);
+      assert.equal(body.Scene, undefined);
+      writeJSON(res, 200, {
+        ok: true,
+        level: 0,
+        label: 'normal',
+        reason: 'Neutral greeting expression',
+        usage: { cost: '0.001' },
+        request_id: 'content-risk-1',
+      });
+      return;
+    }
+
     if (req.url === '/v1/audio/scan') {
       assert.equal(body.uri, 'https://example.com/audio/test.mp3');
       assert.equal(body.rec_type, 'AUDIOPOLITICAL_MOAN_ANTHEN');
@@ -263,6 +281,14 @@ test('Modal scan APIs normalize Go and JS request field names', async (t) => {
   assert.equal(text.data.is_sensitive, false);
   assert.deepEqual(text.extra, {});
 
+  const textContent = await client.Modal.ScanTextContent({ Text: 'hello world', Canary: 'A', Scene: 'user_name' });
+  assert.equal(textContent.ok, true);
+  assert.equal(textContent.level, 0);
+  assert.equal(textContent.label, 'normal');
+  assert.equal(textContent.reason, 'Neutral greeting expression');
+  assert.equal(textContent.usage.cost, '0.001');
+  assert.equal(textContent.extra.request_id, 'content-risk-1');
+
   const face = await client.modal.scanFace({ URI: 'https://example.com/face.jpg', IsVideo: 0, Scene: 'avatar' });
   assert.equal(face.ok, true);
   assert.equal(face.extra.face_count, 1);
@@ -276,7 +302,7 @@ test('Modal scan APIs normalize Go and JS request field names', async (t) => {
   assert.equal(audio.allLabels[0].label1, 'politics');
   assert.equal(audio.usage.cost, '0.001');
   assert.equal(audio.extra.request_id, 'audio-risk-1');
-  assert.deepEqual(seen, ['/v1/image/scan', '/v1/text/scan', '/v1/face/scan', '/v1/audio/scan']);
+  assert.deepEqual(seen, ['/v1/image/scan', '/v1/text/scan', '/v1/text/content/scan', '/v1/face/scan', '/v1/audio/scan']);
 });
 
 test('Modal wait completes and Task.wait uses attached client', async (t) => {
